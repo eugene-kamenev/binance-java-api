@@ -3,11 +3,7 @@ package com.binance.api.client.impl;
 import com.binance.api.client.BinanceApiCallback;
 import com.binance.api.client.BinanceApiWebSocketClient;
 import com.binance.api.client.constant.BinanceApiConstants;
-import com.binance.api.client.domain.event.AggTradeEvent;
-import com.binance.api.client.domain.event.AllMarketTickersEvent;
-import com.binance.api.client.domain.event.CandlestickEvent;
-import com.binance.api.client.domain.event.DepthEvent;
-import com.binance.api.client.domain.event.UserDataUpdateEvent;
+import com.binance.api.client.domain.event.*;
 import com.binance.api.client.domain.market.CandlestickInterval;
 import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
@@ -15,6 +11,7 @@ import okhttp3.Request;
 import okhttp3.WebSocket;
 
 import java.io.Closeable;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -33,6 +30,20 @@ public class BinanceApiWebSocketClientImpl implements BinanceApiWebSocketClient,
     public Closeable onDepthEvent(String symbol, BinanceApiCallback<DepthEvent> callback) {
         final String channel = String.format("%s@depth", symbol);
         return createNewWebSocket(channel, new BinanceApiWebSocketListener<>(callback, DepthEvent.class));
+    }
+
+    @Override
+    public Closeable onDepthEvent(String[] symbols, BinanceApiCallback<DepthEvent> callback) {
+        if (symbols != null && symbols.length > 0) {
+            String[] copy = Arrays.copyOf(symbols, symbols.length);
+            int i = 0;
+            for (String s : copy) {
+                copy[i] = String.format("%s@depth", s);
+                i++;
+            }
+            return createNewWebSocket(copy, new BinanceApiWebSocketListener<>(callback, DepthEvent.class));
+        }
+        return null;
     }
 
     @Override
@@ -62,6 +73,19 @@ public class BinanceApiWebSocketClientImpl implements BinanceApiWebSocketClient,
 
     private Closeable createNewWebSocket(String channel, BinanceApiWebSocketListener<?> listener) {
         String streamingUrl = String.format("%s/%s", BinanceApiConstants.WS_API_BASE_URL, channel);
+        Request request = new Request.Builder().url(streamingUrl).build();
+        final WebSocket webSocket = client.newWebSocket(request, listener);
+        return () -> {
+            final int code = 1000;
+            listener.onClosing(webSocket, code, null);
+            webSocket.close(code, null);
+            listener.onClosed(webSocket, code, null);
+        };
+    }
+
+    private Closeable createNewWebSocket(String[] streams, BinanceApiWebSocketListener<?> listener) {
+        String channels = String.join("/", streams);
+        String streamingUrl = String.format("%s/%s", BinanceApiConstants.WS_API_BASE_URL, channels);
         Request request = new Request.Builder().url(streamingUrl).build();
         final WebSocket webSocket = client.newWebSocket(request, listener);
         return () -> {
